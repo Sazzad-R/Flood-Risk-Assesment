@@ -1,31 +1,35 @@
 ---
 title: "Buffalo Creek Flood Risk Assessment"
-author: Sazzad Hossain
-subtitle: Find weather any Infrastructure at Risk of Flooding
+author: "Sazzad Hossain"
+subtitle: "Find whether any infrastructure is at risk of flooding"
 date: 2025-11-20
 date-format: long
 code-fold: true
 code-tools:
   toggle: true
 format:
-  html: default
+  html:
+    theme: default
+    toc: true
+    toc-depth: 3
+    self-contained: false
 ---
 
-# Introduction
+##Introduction
 
-This flood risk assessment analyzes Buffalo Creek in Erie County, New York, focusing on a 500m buffer zone around streams. 
+#This flood risk assessment analyzes Buffalo Creek in Erie County, New York, focusing on a 500m buffer zone around streams.
 
-Materials and methods
+##Materials and methods
 
-The analysis uses elevation data, stream extraction, and OpenStreetMap building footprints to assess flood risk. The goal is to identify buildings within the flood-prone area, providing insights for urban planning and disaster preparedness.
+#The analysis uses elevation data, stream extraction, and OpenStreetMap building footprints to assess flood risk. The goal is to identify buildings within the flood-prone area, providing insights for urban planning and disaster preparedness.
 
-Here's my first code chunk.
+#Here's my first code chunk.
+
 ```{r}
 renv::snapshot(force = TRUE)
 ```
-```{r}
 
-install.packages("nhdplusTools")
+```{r}
 library(nhdplusTools)
 library(sf)
 library(terra)
@@ -39,7 +43,8 @@ library(htmlwidgets)
 library(knitr)
 library(tmap)
 ```
-#Create directories
+
+
 ```{r}
 #Define Buffalo Creek study area
 bbox_coords <- c(xmin = -78.85, ymin = 42.80, xmax = -78.65, ymax = 42.92)
@@ -52,18 +57,30 @@ dem <- rast(dem_raw)
 writeRaster(dem, "data/buffalo_dem.tif", overwrite = TRUE)
 
 print(paste("DEM Resolution:", res(dem), "meters"))
-print(paste("Elevation range:", round(minmax(dem)), "to", round(minmax(dem)), "meters"))
+rng <- minmax(dem)
+print(paste("Elevation range:", round(rng[1]), "to", round(rng[2]), "meters"))
+
+#Visualize DEM
+
 plot(dem)
 ```
 
-## Stream Extraction (Centerlines Only)
+## Stream Extraction
+
 ```{r}
 library(nhdplusTools)
 library(sf)
 
 # Define area of interest as sf polygon (not bbox)
-aoi <- sf::st_as_sfc(sf::st_bbox(c(xmin = -79.8, ymin = 40.6, xmax = -79.5, ymax = 41.0), 
-                                   crs = "EPSG:4326"))
+
+aoi <- st_as_sfc(st_bbox(c(
+  xmin = -78.9,
+  ymin = 42.75,
+  xmax = -78.6,
+  ymax = 42.95
+), crs = 4326))
+
+
 
 # Download flowlines for the area
 flowlines <- get_3dhp(AOI = aoi, type = "flowline")
@@ -75,7 +92,6 @@ buffalo_creek <- flowlines |>
 # Visualize just the stream
 plot(st_geometry(buffalo_creek), col = "blue", lwd = 2, main = "Buffalo Creek Stream Network")
 ```
-
 
 ```{r}
 buffalo_creek_proj <- st_transform(buffalo_creek, crs = 32617) # UTM zone for your area
@@ -90,7 +106,6 @@ plot(st_geometry(buffalo_creek), col = "blue", lwd = 2, add = TRUE)
 
 
 ```
-
 
 ```{r}
 # Define the study area polygon for OSM query
@@ -108,7 +123,6 @@ buildings <- buildings_osm$osm_polygons
 buildings <- st_transform(buildings, st_crs(stream_buffer_wgs84))
 ```
 
-
 ```{r}
 # Spatial intersection
 buildings_at_risk <- st_intersection(buildings, stream_buffer_wgs84)
@@ -117,6 +131,7 @@ buildings_at_risk <- st_intersection(buildings, stream_buffer_wgs84)
 cat("Number of buildings at risk:", nrow(buildings_at_risk), "\n")
 
 ```
+
 ```{r}
 library(tmap)
 
@@ -132,5 +147,3 @@ tm_shape(stream_buffer_wgs84) +
   tm_polygons(col = "orange", alpha = 0.8, title = "Buildings at Risk")
 
 ```
-
-
