@@ -15,21 +15,7 @@ format:
     self-contained: false
 ---
 
-##Introduction
-
-#This flood risk assessment analyzes Buffalo Creek in Erie County, New York, focusing on a 500m buffer zone around streams.
-
-##Materials and methods
-
-#The analysis uses elevation data, stream extraction, and OpenStreetMap building footprints to assess flood risk. The goal is to identify buildings within the flood-prone area, providing insights for urban planning and disaster preparedness.
-
-#Here's my first code chunk.
-
-```{r}
-renv::snapshot(force = TRUE)
-```
-
-```{r}
+```{r message=FALSE, warning=FALSE}
 library(nhdplusTools)
 library(sf)
 library(terra)
@@ -44,8 +30,7 @@ library(knitr)
 library(tmap)
 ```
 
-
-```{r}
+```{r message=FALSE, warning=FALSE}
 #Define Buffalo Creek study area
 bbox_coords <- c(xmin = -78.85, ymin = 42.80, xmax = -78.65, ymax = 42.92)
 study_bbox <- st_bbox(bbox_coords, crs = 4326)
@@ -67,7 +52,7 @@ plot(dem)
 
 ## Stream Extraction
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 library(nhdplusTools)
 library(sf)
 
@@ -92,8 +77,7 @@ buffalo_creek <- flowlines |>
 # Visualize just the stream
 plot(st_geometry(buffalo_creek), col = "blue", lwd = 2, main = "Buffalo Creek Stream Network")
 ```
-
-```{r}
+```{r message=FALSE, warning=FALSE}
 buffalo_creek_proj <- st_transform(buffalo_creek, crs = 32617) # UTM zone for your area
 stream_buffer <- st_buffer(buffalo_creek_proj, dist = 500) # 500 meters
 
@@ -107,7 +91,7 @@ plot(st_geometry(buffalo_creek), col = "blue", lwd = 2, add = TRUE)
 
 ```
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 # Define the study area polygon for OSM query
 bbox <- st_bbox(stream_buffer_wgs84)
 
@@ -123,8 +107,7 @@ buildings <- buildings_osm$osm_polygons
 buildings <- st_transform(buildings, st_crs(stream_buffer_wgs84))
 ```
 
-```{r}
-# Spatial intersection
+```{r message=FALSE, warning=FALSE}
 buildings_at_risk <- st_intersection(buildings, stream_buffer_wgs84)
 
 # Check how many buildings are affected
@@ -132,18 +115,21 @@ cat("Number of buildings at risk:", nrow(buildings_at_risk), "\n")
 
 ```
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 library(tmap)
 
-tmap_mode("view") # interactive map
+# Static plot for Quarto rendering
+tmap_mode("plot")
 
 tm_shape(stream_buffer_wgs84) +
-  tm_fill(col = "red", alpha = 0.2, title = "500m Flood Buffer") +
+  tm_fill(col = "red", alpha = 0.2) +
   tm_shape(buffalo_creek) +
-  tm_lines(col = "blue", lwd = 2, title = "Buffalo Creek") +
+  tm_lines(col = "blue") +
   tm_shape(buildings) +
-  tm_polygons(col = "grey", alpha = 0.5, title = "Buildings") +
+  tm_polygons(col = "grey", alpha = 0.5) +
   tm_shape(buildings_at_risk) +
-  tm_polygons(col = "orange", alpha = 0.8, title = "Buildings at Risk")
+  tm_polygons(col = "orange", alpha = 0.8)
+
 
 ```
+
