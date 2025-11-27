@@ -11,14 +11,17 @@ code-tools:
 
 # Introduction
 
-This flood risk assessment analyzes Buffalo Creek in Erie County, New York, focusing on a 500m buffer zone around streams. \# Materials and methods
+This flood risk assessment analyzes Buffalo Creek in Erie County, New York, focusing on a 500m buffer zone around streams. 
+
+Materials and methods
 
 The analysis uses elevation data, stream extraction, and OpenStreetMap building footprints to assess flood risk. The goal is to identify buildings within the flood-prone area, providing insights for urban planning and disaster preparedness.
 
 Here's my first code chunk.
 
 ## Load and setip
-
+install.packages("nhdplusTools")
+library(nhdplusTools)
 ```{r}
 
 
@@ -34,396 +37,101 @@ library(htmlwidgets)
 library(knitr)
 library(tmap)
 ```
-
-```{r, message=FALSE}
-dir.create("buffalo_creek_project")
-setwd("buffalo_creek_project")
-dir.create("data/raw", recursive = TRUE)
-dir.create("data/processed")
-dir.create("outputs")
-```
-
-## Define study area
-
+#Create directories
 ```{r}
+dir.create("simple_flood_assessment", showWarnings = FALSE)
+setwd("simple_flood_assessment")
+dir.create("data", showWarnings = FALSE)
+dir.create("outputs", showWarnings = FALSE)
+
+#Define Buffalo Creek study area
 bbox_coords <- c(xmin = -78.85, ymin = 42.80, xmax = -78.65, ymax = 42.92)
 study_bbox <- st_bbox(bbox_coords, crs = 4326)
-study_area <- st_as_sfc(study_bbox)
-study_area<- st_sf(geometry = study_area)
-# Create USGS station point
-station_point <- st_sf(name = "USGS 04214500",
-                       geometry = st_sfc(st_point(c(-78.7564, 42.8546)),
-                                         crs = 4326))
+study_area <- st_as_sfc(study_bbox) |> st_sf()
 
-```
-
-##Download DEM
-```{r message=FALSE}
+#Download DEM
 dem_raw <- get_elev_raster(locations = study_area, z = 13, src = "aws")
 dem <- rast(dem_raw)
-# visualize DEM
-plot(dem, main = "Buffalo Creek DEM")
+writeRaster(dem, "data/buffalo_dem.tif", overwrite = TRUE)
+
+print(paste("DEM Resolution:", res(dem), "meters"))
+print(paste("Elevation range:", round(minmax(dem)), "to", round(minmax(dem)), "meters"))
+plot(dem)
 ```
 
-##Download streamflow data
+## Stream Extraction (Centerlines Only)
 ```{r}
-station_id <- "04214500"
-flow_data <- readNWISdv(siteNumbers = station_id,
-                        parameterCd = "00060",
-                        startDate = "2014-01-01",
-                        endDate = "2024-10-24")
+library(nhdplusTools)
+library(sf)
 
-flow_data <- renameNWISColumns(flow_data)
-# Plot streamflow
-ggplot(flow_data, aes(x = Date, y = Flow)) +
-  geom_line(color = "blue") +
-  labs(title = "Buffalo Creek Streamflow (2014-2024)",
-       x = "Date", y = "Discharge (cfs)") +
-  theme_minimal()
-```
+# Define area of interest as sf polygon (not bbox)
+aoi <- sf::st_as_sfc(sf::st_bbox(c(xmin = -79.8, ymin = 40.6, xmax = -79.5, ymax = 41.0), 
+                                   crs = "EPSG:4326"))
 
-# stream extraction using flow accumulation
-```{r}
-dem_filled <- focal(dem, w = 3, fun = "median", na.policy = "only", na.rm = TRUE)
-dem_filled[is.na(dem_filled)] <- -9999
-dem_gradient <- focal(dem_filled, w = 5, fun = function(x) sd(x, na.rm = TRUE))
-# Define streams as areas with high gradient variability
-streams_rast <- dem_gradient > quantile(dem_gradient[], 0.75, na.rm = TRUE)
+# Download flowlines for the area
+flowlines <- get_3dhp(AOI = aoi, type = "flowline")
 
-# Define streams as areas with high gradient variability
-streams_rast <- dem_gradient > quantile(dem_gradient[], 0.75, na.rm = TRUE)
+# Filter for Buffalo Creek
+buffalo_creek <- flowlines |>
+  filter(grepl("Buffalo", gnisidlabel, ignore.case = TRUE))
 
-```
-
-# Convert streams to vector
-```{r}
-streams_sf <- as.polygons(streams_rast > 0) |>
-  st_as_sf() |>
-  st_cast("MULTIPOLYGON") |>
-  st_cast("MULTILINESTRING") |>
-  st_cast("LINESTRING")
-
-# Visualize extracted streams
-plot(dem, main = "DEM with Extracted Streams")
-plot(streams_sf, add = TRUE, col = "blue", lwd = 2)
-```
-# Create flood buffers around streams
-
-# 500m buffer zone (secondary flood risk)
-```{r}
-flood_500m <- st_read("data/processed/flood_zone_500m.shp", quiet = TRUE)
-```
-
-```{r}
-flood_500m$zone <- "500m"
-```
-
-# Visualize
-```{r}
-tmap_mode("plot")
-static_map <- tm_shape(dem) +
-  tm_raster(col_alpha = 0.7) +  # Elevation raster
-  tm_shape(flood_500m) +
-  tm_fill(col = "orange", fill_alpha = 0.3, fill.legend = tm_legend(title = "500m Flood Zone")) +  # Flood buffer
-  tm_borders(col = "red", lwd = 2) +
-  tm_shape(streams_sf) +
-  tm_lines(col = "blue", lwd = 2) +  # Streams, no title param in v4
-  tm_title("Buffalo Creek Flood Risk Zones") +
-  tm_layout(legend.outside = TRUE) +
-  tm_compass(position = c("left", "top")) +
-  tm_scalebar(position = c("left", "bottom"))
-
-# Display the map
-static_map
+# Visualize just the stream
+plot(st_geometry(buffalo_creek), col = "blue", lwd = 2, main = "Buffalo Creek Stream Network")
 ```
 
 
-## Buildings
 ```{r}
-bbox_osm <- c(-78.85, 42.80, -78.65, 42.92)
-buildings_query <- opq(bbox = bbox_osm) %>%
-  add_osm_feature(key = "building")
-buildings <- osmdata_sf(buildings_query)
-buildings_sf <- buildings$osm_polygons
-buildings_sf <- buildings_sf[!st_is_empty(buildings_sf), ]
-buildings_clean <- buildings_sf %>%
-  select(osm_id, building, geometry)
+buffalo_creek_proj <- st_transform(buffalo_creek, crs = 32617) # UTM zone for your area
+stream_buffer <- st_buffer(buffalo_creek_proj, dist = 500) # 500 meters
 
-```
+# Transform back to WGS84 for plotting or OSM intersection
+stream_buffer_wgs84 <- st_transform(stream_buffer, crs = 4326)
 
-# Risk Analysis
+# Plot buffer and stream
+plot(st_geometry(stream_buffer_wgs84), col = rgb(1,0,0,0.2), main = "Buffalo Creek 500m Flood Buffer")
+plot(st_geometry(buffalo_creek), col = "blue", lwd = 2, add = TRUE)
 
-```{r}
-buildings_all <- st_read("data/processed/buildings.gpkg")
-flood_500m <- st_read("data/processed/flood_zone_500m.shp")
-buildings_all <- st_transform(buildings_all, st_crs(flood_500m))
-
-# Find buildings touching or within flood zone
-
-touch_matrix <- st_touches(buildings_all, flood_500m, sparse = FALSE)
-within_matrix <- st_within(buildings_all, flood_500m, sparse = FALSE)
-at_risk_matrix <- touch_matrix | within_matrix
-buildings_at_risk <- buildings_all[at_risk_matrix[, 1], ]
-if (nrow(buildings_at_risk) > 0) {
-  st_write(buildings_at_risk,
-           "outputs/buildings_at_risk_500m.gpkg",
-           append = FALSE)
-}
-
-```
-#Intersection and Touch
-#buildings_touching <- st_touches(buildings_all, flood_500m, sparse = FALSE)
-#buildings_at_risk <- buildings_all[buildings_touching[, 1], ]
-
-# If there are none, show all buildings in map as non-risk
-
-
-
-# SUMMARY STATISTICS
-```{r}
-study_area <- st_read("data/processed/study_area.shp")
-study_area_proj <- st_transform(study_area, crs = 32617)
-flood_500m_proj <- st_transform(flood_500m, crs = 32617)
-study_area_km2 <- as.numeric(st_area(study_area_proj)) / 1e6
-flood_area_km2 <- sum(as.numeric(st_area(flood_500m_proj))) / 1e6
-
-
-summary_stats <- data.frame(
-  Category = c(
-    "Study Area (km²)",
-    "500m Flood Zone Area (km²)",
-    "Percent of Study Area Flooded",
-    "Total Buildings in Study Area",
-    "Buildings in 500m Flood Zone",
-    "Percent of Buildings at Risk"
-  ),
-  Value = c(
-    round(study_area_km2, 2),
-    round(flood_area_km2, 2),
-    paste0(round(100 * flood_area_km2 / study_area_km2, 1), "%"),
-    nrow(buildings_all),
-    0,  # Show zero if none found
-    "0%"
-  )
-)
-
-print(summary_stats)
-```
-
-```{r}
-comparison_data <- data.frame(
-  Category = c("All Buildings", "Buildings at Risk (500m)"),
-  Count = c(nrow(buildings_all), 0)
-)
-ggplot(comparison_data, aes(x = Category, y = Count, fill = Category)) +
-  geom_col(width = 0.6) +
-  geom_text(aes(label = Count), vjust = -0.5, size = 6, fontface = "bold") +
-  scale_fill_manual(values = c("steelblue", "lightgray")) +
-  labs(
-    title = "Buildings at Risk in 500m Flood Zone",
-    subtitle = "Buffalo Creek Study Area - No Buildings at Risk",
-    x = "",
-    y = "Number of Buildings"
-  ) +
-  annotate("text", x = 1.5, y = max(comparison_data$Count) * 0.5,
-           label = "GOOD NEWS:\nNo buildings\nwithin flood zone",
-           size = 5, color = "darkgreen", fontface = "bold") +
-  theme_minimal(base_size = 14) +
-  theme(
-    legend.position = "none",
-    plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
-    plot.subtitle = element_text(hjust = 0.5, size = 14, color = "darkgreen")
-  )
-```
-
-## STATIC MAP
-```{r}
-dem <- rast("data/raw/buffalo_creek_dem.tif")
-streams <- st_read("data/processed/streams.shp")
-flood_500m <- st_read("data/processed/flood_zone_500m.shp")
-buildings_all <- st_read("data/processed/buildings.gpkg")
-station <- st_read("data/processed/usgs_station.shp")
-
-
-# Load data
-dem <- rast("data/raw/buffalo_creek_dem.tif")
-streams <- tryCatch(st_read("data/processed/streams.shp"), error = function(e) NULL)
-flood_500m <- tryCatch(st_read("data/processed/flood_zone_500m.shp"), error = function(e) NULL)
-buildings_all <- tryCatch(st_read("data/processed/buildings.gpkg"), error = function(e) NULL)
-station <- tryCatch(st_read("data/processed/usgs_station.shp"), error = function(e) NULL)
-
-# Remove empty geometries and objects with zero features
-if (!is.null(streams)) streams <- streams[!st_is_empty(streams), ]
-if (!is.null(streams) && nrow(streams) == 0) streams <- NULL
-
-if (!is.null(flood_500m)) flood_500m <- flood_500m[!st_is_empty(flood_500m), ]
-if (!is.null(flood_500m) && nrow(flood_500m) == 0) flood_500m <- NULL
-
-if (!is.null(buildings_all)) buildings_all <- buildings_all[!st_is_empty(buildings_all), ]
-if (!is.null(buildings_all) && nrow(buildings_all) == 0) buildings_all <- NULL
-
-if (!is.null(station)) station <- station[!st_is_empty(station), ]
-if (!is.null(station) && nrow(station) == 0) station <- NULL
-
-# Set tmap to plot mode and disable autoscaling
-tmap_mode("plot")
-tmap_options(component.autoscale = FALSE)
-
-# Build the map only with layers that exist and are non-empty
-static_map <- tm_shape(dem) +
-  tm_raster(col_alpha = 0.7)
-
-if (!is.null(flood_500m)) {
-  static_map <- static_map +
-    tm_shape(flood_500m) +
-    tm_fill(col = "orange", fill_alpha = 0.3) +
-    tm_borders(col = "red", lwd = 2)
-}
-
-if (!is.null(streams)) {
-  static_map <- static_map +
-    tm_shape(streams) +
-    tm_lines(col = "darkblue", lwd = 2.5)
-}
-
-if (!is.null(buildings_all)) {
-  static_map <- static_map +
-    tm_shape(buildings_all) +
-    tm_dots(col = "gray30", fill_alpha = 0.6, size = 0.03)
-}
-
-if (!is.null(station)) {
-  static_map <- static_map +
-    tm_shape(station) +
-    tm_symbols(col = "green", shape = 24, size = 0.8)
-}
-
-static_map <- static_map +
-  tm_title("Buffalo Creek Flood Risk Assessment\n500m Buffer Zone (No Buildings At Risk)") +
-  tm_layout(
-    frame = TRUE,
-    legend.outside = TRUE,
-    legend.position = c("right", "top")
-  ) +
-  tm_compass(position = c("left", "top")) +
-  tm_scalebar(position = c("left", "bottom"))
-```
-
-# Show and save the map (no error, always works)
-```{r}
-static_map
-tmap_save(static_map, "outputs/flood_risk_map_final.png", width = 14, height = 10, dpi = 300)
-```
-# INTERACTIVE MAP
-```{r}
-leaflet_map <- leaflet() %>%
-  addProviderTiles(providers$Esri.WorldTopoMap)
-111
-tmap_mode("view")
-interactive_map <- tm_basemap("OpenStreetMap") +
-  tm_shape(flood_500m) +
-  tm_fill(col = "orange", fill_alpha = 0.3, popup.vars = c("Zone" = "zone"), id = "zone") +
-  tm_borders(col = "red", lwd = 2) +
-  tm_shape(streams) +
-  tm_lines(col = "blue", lwd = 3, popup.vars = TRUE) +
-  tm_shape(buildings_all) +
-  tm_dots(col = "gray30", fill_alpha = 0.6, size = 0.02,
-          popup.vars = c("OSM ID" = "osm_id", "Building Type" = "building"),
-          id = "All Buildings") +
-  tm_shape(station) +
-  tm_symbols(col = "green", size = 0.5, shape = 24, popup.vars = c("Station" = "name"))
-
-interactive_map
-tmap_save(interactive_map, "outputs/flood_risk_interactive_map.html")
-tmap_mode("plot")
-222
-
-tm_shape(buildings_all) +
-  tm_dots(
-    col = "gray30",
-    fill_alpha = 0.6,
-    size = 0.02,
-    popup.vars = c("OSM ID" = "osm_id", "Building Type" = "building")
-    # no id argument here
-  )
-
-# Check for non-empty objects; set to NULL if empty
-if (!exists("flood_500m") || is.null(flood_500m) || nrow(flood_500m) == 0) flood_500m <- NULL
-if (!exists("streams") || is.null(streams) || nrow(streams) == 0) streams <- NULL
-if (!exists("buildings_all") || is.null(buildings_all) || nrow(buildings_all) == 0) buildings_all <- NULL
-if (!exists("station") || is.null(station) || nrow(station) == 0) station <- NULL
-
-tmap_mode("view")
-interactive_map <- tm_basemap("OpenStreetMap")
-
-if (!is.null(flood_500m)) {
-  interactive_map <- interactive_map +
-    tm_shape(flood_500m) +
-    tm_fill(col = "orange", fill_alpha = 0.3, popup.vars = c("Zone" = "zone"), id = "zone") +
-    tm_borders(col = "red", lwd = 2)
-}
-
-if (!is.null(streams)) {
-  interactive_map <- interactive_map +
-    tm_shape(streams) +
-    tm_lines(col = "blue", lwd = 3, popup.vars = TRUE)
-}
-
-if (!is.null(buildings_all)) {
-  interactive_map <- interactive_map +
-    tm_shape(buildings_all) +
-    tm_dots(
-      col = "gray30",
-      fill_alpha = 0.6,
-      size = 0.02,
-      popup.vars = c("OSM ID" = "osm_id", "Building Type" = "building"),
-      id = "All Buildings"
-    )
-}
-
-if (!is.null(station)) {
-  interactive_map <- interactive_map +
-    tm_shape(station) +
-    tm_symbols(
-      col = "green",
-      size = 0.5,
-      shape = 24,
-      popup.vars = c("Station" = "name")
-    )
-}
-
-# Show the map (should always work)
-interactive_map
 
 ```
 ```{r}
-interactive_map <- tm_basemap("OpenStreetMap")
+# Define the study area polygon for OSM query
+bbox <- st_bbox(stream_buffer_wgs84)
 
-if (!is.null(flood_500m)) {
-  interactive_map <- interactive_map +
-    tm_shape(flood_500m) +
-    tm_fill(col = "orange", fill_alpha = 0.3) +
-    tm_borders(col = "red", lwd = 2)
-}
+# Get buildings from OSM
+buildings_osm <- opq(bbox = bbox) %>%
+  add_osm_feature(key = "building") %>%
+  osmdata_sf()
 
-if (!is.null(streams)) {
-  interactive_map <- interactive_map +
-    tm_shape(streams) +
-    tm_lines(col = "blue", lwd = 3)
-}
+# Extract building polygons
+buildings <- buildings_osm$osm_polygons
 
-if (!is.null(buildings_all)) {
-  interactive_map <- interactive_map +
-    tm_shape(buildings_all) +
-    tm_dots(col = "gray30", size = 0.02)
-}
-
-if (!is.null(station)) {
-  interactive_map <- interactive_map +
-    tm_shape(station) +
-    tm_symbols(col = "green", size = 0.5, shape = 24)
-}
-
-interactive_map
+# Ensure same CRS for intersection
+buildings <- st_transform(buildings, st_crs(stream_buffer_wgs84))
 ```
+
+
+```{r}
+# Spatial intersection
+buildings_at_risk <- st_intersection(buildings, stream_buffer_wgs84)
+
+# Check how many buildings are affected
+cat("Number of buildings at risk:", nrow(buildings_at_risk), "\n")
+
+```
+```{r}
+library(tmap)
+
+tmap_mode("view") # interactive map
+
+tm_shape(stream_buffer_wgs84) +
+  tm_fill(col = "red", alpha = 0.2, title = "500m Flood Buffer") +
+  tm_shape(buffalo_creek) +
+  tm_lines(col = "blue", lwd = 2, title = "Buffalo Creek") +
+  tm_shape(buildings) +
+  tm_polygons(col = "grey", alpha = 0.5, title = "Buildings") +
+  tm_shape(buildings_at_risk) +
+  tm_polygons(col = "orange", alpha = 0.8, title = "Buildings at Risk")
+
+```
+
 
