@@ -7,6 +7,8 @@ date-format: long
 code-fold: true
 code-tools:
   toggle: true
+format:
+  html: default
 ---
 
 # Introduction
@@ -18,13 +20,13 @@ Materials and methods
 The analysis uses elevation data, stream extraction, and OpenStreetMap building footprints to assess flood risk. The goal is to identify buildings within the flood-prone area, providing insights for urban planning and disaster preparedness.
 
 Here's my first code chunk.
-
-## Load and setip
-install.packages("nhdplusTools")
-library(nhdplusTools)
+```{r}
+renv::snapshot(force = TRUE)
+```
 ```{r}
 
-
+install.packages("nhdplusTools")
+library(nhdplusTools)
 library(sf)
 library(terra)
 library(elevatr)
@@ -39,11 +41,6 @@ library(tmap)
 ```
 #Create directories
 ```{r}
-dir.create("simple_flood_assessment", showWarnings = FALSE)
-setwd("simple_flood_assessment")
-dir.create("data", showWarnings = FALSE)
-dir.create("outputs", showWarnings = FALSE)
-
 #Define Buffalo Creek study area
 bbox_coords <- c(xmin = -78.85, ymin = 42.80, xmax = -78.65, ymax = 42.92)
 study_bbox <- st_bbox(bbox_coords, crs = 4326)
@@ -93,6 +90,8 @@ plot(st_geometry(buffalo_creek), col = "blue", lwd = 2, add = TRUE)
 
 
 ```
+
+
 ```{r}
 # Define the study area polygon for OSM query
 bbox <- st_bbox(stream_buffer_wgs84)
