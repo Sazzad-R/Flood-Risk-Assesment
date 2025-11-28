@@ -12,7 +12,7 @@ format:
     theme: default
     toc: true
     toc-depth: 3
-    self-contained: false
+    self-contained: true
 ---
 
 ```{r message=FALSE, warning=FALSE}
@@ -132,4 +132,36 @@ tm_shape(stream_buffer_wgs84) +
 
 
 ```
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
 
+# Total number of buildings
+total_buildings <- nrow(buildings)
+
+# Number of buildings at risk
+at_risk <- nrow(buildings_at_risk)
+
+# Number of buildings not at risk
+not_at_risk <- total_buildings - at_risk
+
+# Create summary data frame
+summary_df <- data.frame(
+  Status = c("At Risk", "Not at Risk"),
+  Count = c(at_risk, not_at_risk)
+)
+
+# Print summary table
+knitr::kable(summary_df, caption = "Summary of Buildings at Risk")
+
+# Plot the summary
+ggplot(summary_df, aes(x = Status, y = Count, fill = Status)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Count), vjust = -0.5, size = 5) +
+  scale_fill_manual(values = c("orange", "grey")) +
+  labs(title = "Buildings at Risk vs Not at Risk",
+       x = "", y = "Number of Buildings") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        text = element_text(size = 14))
+
+```
