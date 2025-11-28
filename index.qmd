@@ -2,7 +2,7 @@
 title: "Buffalo Creek Flood Risk Assessment"
 author: "Sazzad Hossain"
 subtitle: "Find whether any infrastructure is at risk of flooding"
-date: 2025-11-20
+date: 2025-11-28
 date-format: long
 code-fold: true
 code-tools:
@@ -14,6 +14,37 @@ format:
     toc-depth: 3
     self-contained: true
 ---
+
+# Introduction
+
+Buffalo Creek, located in Erie County, New York, has a history of flooding that can threaten local infrastructure.  
+This project aims to identify areas along Buffalo Creek that may put buildings or other structures at risk of flooding.  
+
+The analysis combines publicly available elevation data, hydrological flowlines, and OpenStreetMap building data to generate spatial visualizations of flood buffers and at-risk infrastructure.  
+
+The main questions addressed are:
+
+1. Which buildings fall within potential flood zones of Buffalo Creek?
+2. How many buildings are at risk within a 500-meter buffer of the stream?
+3. Can this workflow be reproduced using publicly available data and code?
+
+---
+
+# Data
+
+The analysis uses the following sources:
+
+- **Digital Elevation Model (DEM):** downloaded automatically from AWS terrain using the `elevatr` package. Provides elevation information to help understand terrain and flood flow.
+- **Hydrological data:** downloaded from NHDPlus High-Resolution using `nhdplusTools`. Contains stream and river networks.
+- **Buildings:** downloaded from OpenStreetMap using `osmdata`. Used to identify structures potentially at risk.
+
+
+
+# Load Libraries
+
+These libraries allow downloading, processing, and visualizing both raster and vector spatial data, and creating figures and tables for the HTML report.
+
+
 
 ```{r message=FALSE, warning=FALSE}
 library(nhdplusTools)
@@ -29,6 +60,15 @@ library(htmlwidgets)
 library(knitr)
 library(tmap)
 ```
+
+
+## Digital Elevation Model (DEM)
+
+We define a rectangular study area for Buffalo Creek.
+
+DEM is downloaded automatically from AWS using elevatr.
+
+This raster shows elevation values which help understand which areas are prone to flooding.
 
 ```{r message=FALSE, warning=FALSE}
 #Define Buffalo Creek study area
@@ -51,6 +91,12 @@ plot(dem)
 ```
 
 ## Stream Extraction
+
+Hydrological flowlines are downloaded to identify the stream network.
+
+Only flowlines containing "Buffalo" are selected.
+
+This is the basis for creating flood buffers.
 
 ```{r message=FALSE, warning=FALSE}
 library(nhdplusTools)
@@ -77,6 +123,14 @@ buffalo_creek <- flowlines |>
 # Visualize just the stream
 plot(st_geometry(buffalo_creek), col = "blue", lwd = 2, main = "Buffalo Creek Stream Network")
 ```
+
+
+## Flood Buffer Creation
+
+We create a 500-meter buffer around Buffalo Creek to represent potential flood risk areas.
+
+Buffer is transformed back to WGS84 for mapping and spatial intersection with buildings.
+
 ```{r message=FALSE, warning=FALSE}
 buffalo_creek_proj <- st_transform(buffalo_creek, crs = 32617) # UTM zone for your area
 stream_buffer <- st_buffer(buffalo_creek_proj, dist = 500) # 500 meters
@@ -90,6 +144,12 @@ plot(st_geometry(buffalo_creek), col = "blue", lwd = 2, add = TRUE)
 
 
 ```
+
+## Building Data from OpenStreetMap
+
+Building footprints are downloaded and transformed to match buffer CRS.
+
+Intersection identifies buildings inside the 500-meter flood buffer.
 
 ```{r message=FALSE, warning=FALSE}
 # Define the study area polygon for OSM query
@@ -107,6 +167,8 @@ buildings <- buildings_osm$osm_polygons
 buildings <- st_transform(buildings, st_crs(stream_buffer_wgs84))
 ```
 
+## Identify Buildings at Risk
+
 ```{r message=FALSE, warning=FALSE}
 buildings_at_risk <- st_intersection(buildings, stream_buffer_wgs84)
 
@@ -114,6 +176,10 @@ buildings_at_risk <- st_intersection(buildings, stream_buffer_wgs84)
 cat("Number of buildings at risk:", nrow(buildings_at_risk), "\n")
 
 ```
+## Visualization
+The map shows flood buffer in red, Buffalo Creek in blue, all buildings in grey, and buildings at risk in orange.
+
+This provides a clear visualization of potential risk areas.
 
 ```{r message=FALSE, warning=FALSE}
 library(tmap)
@@ -132,6 +198,9 @@ tm_shape(stream_buffer_wgs84) +
 
 
 ```
+## Summary Table and Plot
+
+
 ```{r message=FALSE, warning=FALSE}
 library(ggplot2)
 
@@ -165,3 +234,9 @@ ggplot(summary_df, aes(x = Status, y = Count, fill = Status)) +
         text = element_text(size = 14))
 
 ```
+
+Conclusions
+
+A 500-meter buffer around Buffalo Creek identifies buildings potentially exposed to flooding.
+
+Future work could include interactive maps, multiple flood return periods, and more detailed infrastructure data.
